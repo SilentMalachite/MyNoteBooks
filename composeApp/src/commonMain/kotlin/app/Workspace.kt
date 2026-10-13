@@ -11,14 +11,17 @@ import app.data.ExitStatement
 import app.data.createDriver
 import app.data.ensureFirstPage
 import app.data.exitStatements
+import app.data.keepsData
 import app.data.listBlocks
 import app.data.listPages
 import app.data.newChild
+import app.data.removePage
 import app.data.savePage
 import app.db.NotesDb
 import app.editor.SaveController
 import app.editor.SaveState
 import app.editor.insertBlockAfter
+import app.editor.removeBlock
 import app.editor.setBlockKind
 import app.search.titleSearch
 import kotlin.time.Clock
@@ -29,11 +32,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+// seq makes each request new, so focus can come back to a block that had it before.
+data class FocusRequest(val id: String, val seq: Int)
+
 class Workspace(
     private val scope: CoroutineScope,
     private val openDriver: suspend () -> SqlDriver = ::createDriver,
     private val clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val writePage: suspend (NotesDb, Page, List<Block>, Long) -> Unit = ::savePage,
+    private val readKeepsData: suspend (SqlDriver) -> Boolean = ::keepsData,
 ) {
     var opening by mutableStateOf(true)
         private set
@@ -49,7 +56,9 @@ class Workspace(
         private set
     var hits by mutableStateOf<List<TitleHit>>(emptyList())
         private set
-    var focusId by mutableStateOf<String?>(null)
+    var focus by mutableStateOf<FocusRequest?>(null)
+        private set
+    var keepsData by mutableStateOf(true)
         private set
 
     val saveState: SaveState get() = saver.state
@@ -63,8 +72,10 @@ class Workspace(
 
     suspend fun start() {
         try {
-            val db = NotesDb(openDriver())
+            val driver = openDriver()
+            val db = NotesDb(driver)
             database = db
+            keepsData = readKeepsData(driver)
             installExitFlush(
                 onHide = {
                     saveOnHide(
@@ -151,8 +162,49 @@ class Workspace(
             blocks = inserted.second.map { fresh ->
                 local[fresh.id]?.let { fresh.copy(body = it.body, checked = it.checked) } ?: fresh
             }
-            focusId = inserted.first
+            focusOn(inserted.first)
         }
+    }
+
+    fun deleteBlock(block: Block) {
+        launchDb {
+            if (database == null) return@launchDb
+            saver.flush()
+            if (saver.state == SaveState.Failed) return@launchDb
+            val remaining = withDb { db ->
+                if (!removeBlock(db, block)) return@withDb null
+                listBlocks(db, block.pageId)
+            } ?: return@launchDb
+            if (openPage?.id != block.pageId) return@launchDb
+            val local = blocks.associateBy { it.id }
+            val above = blocks.indexOfFirst { it.id == block.id } - 1
+            blocks = remaining.map { fresh ->
+                local[fresh.id]?.let { fresh.copy(body = it.body, checked = it.checked) } ?: fresh
+            }
+            focusOn(blocks[above.coerceIn(0, blocks.lastIndex)].id)
+        }
+    }
+
+    fun deletePageLater() {
+        launchDb { deletePage() }
+    }
+
+    // Subpages move up to the parent. The app opens the parent, or the first top-level page.
+    suspend fun deletePage() {
+        val page = openPage ?: return
+        if (database == null) return
+        saver.flush()
+        // A draft that could not be saved belongs to a page that is gone.
+        saver.discard()
+        val next = withDb { db ->
+            removePage(db, page.id, clock())
+            ensureFirstPage(db, clock())
+            val left = listPages(db)
+            page.parentId?.takeIf { parent -> left.any { it.id == parent } }
+                ?: left.first { it.parentId == null }.id
+        }
+        show(next)
+        editQuery(query)
     }
 
     fun changeKind(id: String, kind: String) {
@@ -204,8 +256,12 @@ class Workspace(
         openPage = page
         blocks = loadedBlocks
         saver.markClean()
-        focusId = null
+        focus = null
         error = null
+    }
+
+    private fun focusOn(id: String) {
+        focus = FocusRequest(id, (focus?.seq ?: 0) + 1)
     }
 
     // A failed query shows a message. It must not end the app.

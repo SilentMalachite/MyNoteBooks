@@ -111,4 +111,25 @@ class SaveControllerTest {
         assertEquals(SaveState.Saved, controller.state)
         assertEquals("Next", saved.last())
     }
+
+    @Test
+    fun discardDropsAFailedDraft() = runTest {
+        var writes = 0
+        val controller = SaveController(this) { _, _ ->
+            writes += 1
+            error("disk")
+        }
+        controller.onEdit(page, emptyList())
+        controller.flush()
+        assertEquals(SaveState.Failed, controller.state)
+
+        controller.discard()
+
+        assertEquals(SaveState.Clean, controller.state)
+        assertEquals(null, controller.pendingDraft())
+        controller.retry()
+        controller.flush()
+        advanceUntilIdle()
+        assertEquals(1, writes)
+    }
 }

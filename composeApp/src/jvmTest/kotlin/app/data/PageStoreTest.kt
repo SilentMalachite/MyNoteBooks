@@ -125,6 +125,39 @@ class PageStoreTest {
     }
 
     @Test
+    fun removePageMarksItAndLiftsItsChildren() = runTest {
+        val db = newNotesDb()
+        ensureFirstPage(db, 1)
+        val notes = listPages(db).single().id
+        db.notesQueries.insertPage("ideas", null, "Ideas", 1L, 1)
+        val week = newChild(db, notes, 2) { }
+        val meeting = newChild(db, notes, 3) { }
+
+        removePage(db, notes, 9)
+
+        val pages = listPages(db).sortedBy { it.position }
+        assertEquals(listOf(week, meeting, "ideas"), pages.map { it.id })
+        assertEquals(listOf(0L, 1L, 2L), pages.map { it.position })
+        assertEquals(listOf(null, null, null), pages.map { it.parentId })
+        // The row and its blocks stay in the file.
+        assertEquals(1, listBlocks(db, notes).size)
+    }
+
+    @Test
+    fun removeOnADeletedPageChangesNothing() = runTest {
+        val db = newNotesDb()
+        ensureFirstPage(db, 1)
+        val notes = listPages(db).single().id
+        db.notesQueries.insertPage("ideas", null, "Ideas", 1L, 1)
+        removePage(db, notes, 9)
+
+        removePage(db, notes, 10)
+
+        assertEquals(listOf("ideas"), listPages(db).map { it.id })
+        assertEquals(0L, listPages(db).single().position)
+    }
+
+    @Test
     fun exitBatchWritesTheTitleAndTheBlocks() {
         val page = Page("p", null, "Week plan", 0, 9)
         val block = Block("b", "p", "text", "Write", 1, 0)

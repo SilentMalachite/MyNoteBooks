@@ -74,3 +74,24 @@ FROM page
 WHERE deleted_at IS NULL
   AND title LIKE '%' || :query || '%' ESCAPE '\'
 ORDER BY updated_at DESC;
+
+deleteBlock:
+DELETE FROM block
+WHERE id = :id;
+
+closeGap:
+UPDATE block
+SET position = position - 1
+WHERE page_id = :pageId
+  AND position > :position;
+
+markDeleted:
+UPDATE page
+SET deleted_at = :now
+WHERE id = :id
+  AND deleted_at IS NULL;
+
+movePage:
+UPDATE page
+SET parent_id = :parentId, position = :position
+WHERE id = :id;

@@ -4,11 +4,15 @@ let db = null;
 
 async function createDatabase() {
   const sqlite3 = await sqlite3InitModule();
+  let mode = "memory";
   if ("opfs" in sqlite3 && sqlite3.oo1.OpfsDb) {
     db = new sqlite3.oo1.OpfsDb("/notebook.db");
+    mode = "opfs";
   } else {
     db = new sqlite3.oo1.DB("/notebook.db", "ct");
   }
+  // The app reads this with SELECT, so the stock driver needs no new message.
+  db.createFunction("storage_mode", () => mode, { deterministic: true });
 }
 
 function resultRows(sql, params) {

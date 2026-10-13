@@ -9,6 +9,7 @@ import app.WebExit
 import app.cash.sqldelight.driver.worker.WebWorkerDriver
 import app.db.NotesDb
 import kotlin.js.ExperimentalWasmJsInterop
+import kotlinx.coroutines.CancellationException
 import org.w3c.dom.Worker
 
 actual suspend fun createDriver(): SqlDriver {
@@ -17,6 +18,24 @@ actual suspend fun createDriver(): SqlDriver {
     val driver = WebWorkerDriver(worker)
     prepareNotes(driver)
     return driver
+}
+
+// The worker defines storage_mode() as 'opfs' or 'memory'.
+actual suspend fun keepsData(driver: SqlDriver): Boolean {
+    return try {
+        driver.awaitQuery(
+            identifier = null,
+            sql = "SELECT storage_mode()",
+            mapper = { cursor ->
+                if (cursor.next().await()) cursor.getString(0) else null
+            },
+            parameters = 0,
+        ) == "opfs"
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        false
+    }
 }
 
 @OptIn(ExperimentalWasmJsInterop::class)

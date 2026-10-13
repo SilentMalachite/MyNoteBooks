@@ -66,4 +66,45 @@ class BlockListTest {
         setBlockKind(db, block.id, "todo")
         assertEquals("todo", listBlocks(db, block.pageId).single().kind)
     }
+
+    @Test
+    fun removeClosesTheGapInPositions() = runTest {
+        val db = newNotesDb()
+        ensureFirstPage(db, 1)
+        val page = listPages(db).single()
+        db.notesQueries.insertBlock("a", page.id, "text", "a", 0L, 1L)
+        db.notesQueries.insertBlock("b", page.id, "text", "b", 0L, 2L)
+
+        val removed = removeBlock(db, listBlocks(db, page.id)[1])
+
+        assertEquals(true, removed)
+        val blocks = listBlocks(db, page.id)
+        assertEquals(listOf("", "b"), blocks.map { it.body })
+        assertEquals(listOf(0L, 1L), blocks.map { it.position })
+    }
+
+    @Test
+    fun theLastBlockOfAPageStays() = runTest {
+        val db = newNotesDb()
+        ensureFirstPage(db, 1)
+        val page = listPages(db).single()
+        val block = listBlocks(db, page.id).single()
+
+        assertEquals(false, removeBlock(db, block))
+        assertEquals(listOf(block.id), listBlocks(db, page.id).map { it.id })
+    }
+
+    @Test
+    fun removingABlockTwiceMovesNoOtherBlock() = runTest {
+        val db = newNotesDb()
+        ensureFirstPage(db, 1)
+        val page = listPages(db).single()
+        db.notesQueries.insertBlock("a", page.id, "text", "a", 0L, 1L)
+        db.notesQueries.insertBlock("b", page.id, "text", "b", 0L, 2L)
+        val a = listBlocks(db, page.id)[1]
+        removeBlock(db, a)
+
+        assertEquals(false, removeBlock(db, a))
+        assertEquals(listOf(0L, 1L), listBlocks(db, page.id).map { it.position })
+    }
 }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,10 +41,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
+import app.FocusRequest
 import app.data.Block
 import app.data.Page
+import app.data.listBlocks
 import app.data.newId
 import app.db.NotesDb
+import app.theme.Bad
 import app.theme.Ink
 import app.theme.Line
 import app.theme.Mute
@@ -61,6 +65,20 @@ suspend fun insertBlockAfter(db: NotesDb, pageId: String, after: Long): String {
     return id
 }
 
+// A page always keeps one block. The file has the current positions, not the caller.
+suspend fun removeBlock(db: NotesDb, block: Block): Boolean {
+    var removed = false
+    db.transaction {
+        val current = listBlocks(db, block.pageId)
+        if (current.size <= 1) return@transaction
+        val row = current.firstOrNull { it.id == block.id } ?: return@transaction
+        db.notesQueries.deleteBlock(row.id)
+        db.notesQueries.closeGap(row.pageId, row.position)
+        removed = true
+    }
+    return removed
+}
+
 suspend fun onEnter(db: NotesDb, block: Block) {
     if (block.kind == "page") return
     insertBlockAfter(db, block.pageId, block.position)
@@ -75,10 +93,11 @@ suspend fun setBlockKind(db: NotesDb, id: String, kind: String) {
 fun BlockList(
     blocks: List<Block>,
     pages: List<Page>,
-    focusId: String?,
+    focus: FocusRequest?,
     onBody: (String, String) -> Unit,
     onToggle: (String) -> Unit,
     onEnter: (Block) -> Unit,
+    onDelete: (Block) -> Unit,
     onKind: (String, String) -> Unit,
     onOpenPage: (String) -> Unit,
 ) {
@@ -86,13 +105,17 @@ fun BlockList(
         blocks.forEach { block ->
             // Text field state follows the block, not its slot, when a block is inserted above.
             key(block.id) {
+                // Only the focused row sees the new seq, so the others do not recompose.
+                val request = focus?.takeIf { it.id == block.id }
                 BlockRow(
                     block = block,
                     pages = pages,
-                    focused = block.id == focusId,
+                    focused = request != null,
+                    focusSeq = request?.seq ?: 0,
                     onBody = { onBody(block.id, it) },
                     onToggle = { onToggle(block.id) },
                     onEnter = { onEnter(block) },
+                    onDelete = { onDelete(block) },
                     onKind = { onKind(block.id, it) },
                     onOpenPage = onOpenPage,
                 )
@@ -106,9 +129,11 @@ private fun BlockRow(
     block: Block,
     pages: List<Page>,
     focused: Boolean,
+    focusSeq: Int,
     onBody: (String) -> Unit,
     onToggle: () -> Unit,
     onEnter: () -> Unit,
+    onDelete: () -> Unit,
     onKind: (String) -> Unit,
     onOpenPage: (String) -> Unit,
 ) {
@@ -116,7 +141,7 @@ private fun BlockRow(
         Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        KindMenu(block.kind, onKind)
+        KindMenu(block.kind, onKind, onDelete)
         when (block.kind) {
             "todo" -> TodoBox(block.checked != 0L, onToggle)
             "bullet" -> Text("•", color = Ink, modifier = Modifier.padding(end = 8.dp))
@@ -127,8 +152,10 @@ private fun BlockRow(
                 body = block.body,
                 kind = block.kind,
                 focused = focused,
+                focusSeq = focusSeq,
                 onBody = onBody,
                 onEnter = onEnter,
+                onDelete = onDelete,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -136,7 +163,7 @@ private fun BlockRow(
 }
 
 @Composable
-private fun KindMenu(kind: String, onKind: (String) -> Unit) {
+private fun KindMenu(kind: String, onKind: (String) -> Unit, onDelete: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box(Modifier.width(72.dp)) {
         Text(
@@ -163,6 +190,19 @@ private fun KindMenu(kind: String, onKind: (String) -> Unit) {
                                 .width(88.dp),
                         )
                     }
+                    Box(Modifier.width(112.dp).height(1.dp).background(Line))
+                    Text(
+                        "Delete",
+                        color = Bad,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .clickable {
+                                open = false
+                                onDelete()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .width(88.dp),
+                    )
                 }
             }
         }
@@ -252,12 +292,15 @@ private fun BlockField(
     body: String,
     kind: String,
     focused: Boolean,
+    focusSeq: Int,
     onBody: (String) -> Unit,
     onEnter: () -> Unit,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val requester = remember { FocusRequester() }
-    LaunchedEffect(focused) {
+    // A new request each time, so focus can come back to a block that had it before.
+    LaunchedEffect(focused, focusSeq) {
         if (focused) requester.requestFocus()
     }
     val style = when (kind) {
@@ -273,11 +316,18 @@ private fun BlockField(
             .focusRequester(requester)
             .onPreviewKeyEvent { event ->
                 // The key up of the Enter that commits IME text arrives as a plain Enter on the web.
-                if (event.type == KeyEventType.KeyDown && (event.key == Key.Enter || event.key == Key.NumPadEnter)) {
-                    onEnter()
-                    true
-                } else {
-                    false
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Enter, Key.NumPadEnter -> {
+                        onEnter()
+                        true
+                    }
+                    // Text in IME composition is part of body, so the IME keeps its Backspace.
+                    Key.Backspace if body.isEmpty() -> {
+                        onDelete()
+                        true
+                    }
+                    else -> false
                 }
             }
             .defaultMinSize(minHeight = 24.dp)
