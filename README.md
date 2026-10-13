@@ -1,5 +1,6 @@
 # MyNoteBooks
 
+[![CI](https://github.com/SilentMalachite/MyNoteBooks/actions/workflows/ci.yml/badge.svg)](https://github.com/SilentMalachite/MyNoteBooks/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/SilentMalachite/MyNoteBooks)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![Compose Multiplatform](https://img.shields.io/badge/Compose_Multiplatform-1.12.1-4285F4?logo=jetpackcompose&logoColor=white)](https://www.jetbrains.com/compose-multiplatform/)
