@@ -178,19 +178,18 @@ class Workspace(
         blocks = blocks.filterNot { it.id == block.id }
         focusNear(index - 1)
         launchDb {
-            val remaining = try {
-                withDb { db ->
-                    removeBlock(db, block)
-                    listBlocks(db, block.pageId)
-                }
+            try {
+                withDb { db -> removeBlock(db, block) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (cause: Throwable) {
+                // The transaction did not commit, so the file still has the block.
                 if (openPage?.id == block.pageId && blocks.none { it.id == block.id }) {
                     blocks = blocks.toMutableList().apply { add(index.coerceAtMost(size), block) }
                 }
                 throw cause
             }
+            val remaining = withDb { db -> listBlocks(db, block.pageId) }
             if (openPage?.id != block.pageId) return@launchDb
             // A block that the file kept comes back.
             keepLocalText(remaining)

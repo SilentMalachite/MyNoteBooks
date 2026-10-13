@@ -1,6 +1,10 @@
 import sqlite3InitModule from "./sqlite/index.mjs";
 
 let db = null;
+// The driver sends a transaction as several messages. An exit batch rolls back the open one,
+// so the rest of that transaction must fail instead of running outside it.
+let inTransaction = false;
+let abandoned = false;
 
 async function createDatabase() {
   const sqlite3 = await sqlite3InitModule();
@@ -30,16 +34,29 @@ function handleMessage() {
   switch (data && data.action) {
     case "exec":
       if (!data.sql) throw new Error("exec: Missing query string");
+      if (abandoned) throw new Error("An exit save ended this transaction.");
       return postMessage({ id: data.id, results: resultRows(data.sql, params) });
     case "begin_transaction":
+      abandoned = false;
       db.exec("BEGIN IMMEDIATE;");
+      inTransaction = true;
       return postMessage({ id: data.id, results: { values: [] } });
-    case "end_transaction":
+    case "end_transaction": {
+      const ended = abandoned;
+      inTransaction = false;
+      abandoned = false;
+      if (ended) throw new Error("An exit save ended this transaction.");
       db.exec("END TRANSACTION;");
       return postMessage({ id: data.id, results: { values: [] } });
-    case "rollback_transaction":
-      db.exec("ROLLBACK TRANSACTION;");
+    }
+    case "rollback_transaction": {
+      // An exit batch may have rolled it back already.
+      const open = inTransaction;
+      inTransaction = false;
+      abandoned = false;
+      if (open) db.exec("ROLLBACK TRANSACTION;");
       return postMessage({ id: data.id, results: { values: [] } });
+    }
     case "commit_batch":
       return postMessage({ id: data.id, results: commitBatch(data.statements || []) });
     default:
@@ -48,6 +65,10 @@ function handleMessage() {
 }
 
 function commitBatch(statements) {
+  if (inTransaction) {
+    inTransaction = false;
+    abandoned = true;
+  }
   try {
     db.exec("ROLLBACK;");
   } catch (err) {
