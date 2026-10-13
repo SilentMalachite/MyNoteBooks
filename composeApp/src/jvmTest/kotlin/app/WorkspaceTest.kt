@@ -8,8 +8,12 @@ import app.data.newChild
 import app.data.savePage
 import app.editor.SaveState
 import app.nav.pageTree
+import app.cash.sqldelight.async.coroutines.await
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
+import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -295,4 +299,142 @@ class WorkspaceTest {
         assertEquals(false, lost.keepsData)
         assertEquals("Untitled", lost.openPage?.title)
     }
+
+    @Test
+    fun aDeletedBlockLeavesTheScreenBeforeTheFileChanges() = runTest {
+        val screen = Workspace(this, openDriver = { memoryDriver() }, clock = { 4 })
+        screen.start()
+        screen.enter(screen.blocks.single())
+        advanceUntilIdle()
+        val (first, second) = screen.blocks
+
+        screen.deleteBlock(second)
+
+        // No coroutine has run yet. Keys typed now go to the block above.
+        assertEquals(listOf(first.id), screen.blocks.map { it.id })
+        assertEquals(first.id, screen.focus?.id)
+        advanceUntilIdle()
+        assertEquals(listOf(first.id), screen.blocks.map { it.id })
+        assertEquals(listOf(0L), screen.blocks.map { it.position })
+    }
+
+    @Test
+    fun aFailedBlockDeleteBringsTheBlockBack() = runTest {
+        val screen = Workspace(this, openDriver = { failingDriver("BEFORE DELETE ON block") }, clock = { 4 })
+        screen.start()
+        screen.enter(screen.blocks.single())
+        advanceUntilIdle()
+        val ids = screen.blocks.map { it.id }
+
+        screen.deleteBlock(screen.blocks[1])
+        advanceUntilIdle()
+
+        assertEquals(ids, screen.blocks.map { it.id })
+        assertEquals(false, screen.error.isNullOrEmpty())
+    }
+
+    @Test
+    fun focusSkipsAPageLinkAbove() = runTest {
+        val screen = Workspace(this, openDriver = { memoryDriver() }, clock = { 4 })
+        screen.start()
+        screen.enter(screen.blocks.single())
+        advanceUntilIdle()
+        screen.enter(screen.blocks[1])
+        advanceUntilIdle()
+        val (first, link, last) = screen.blocks
+        screen.changeKind(link.id, "page")
+        advanceUntilIdle()
+
+        screen.deleteBlock(last)
+        advanceUntilIdle()
+        assertEquals(first.id, screen.focus?.id)
+
+        screen.deleteBlock(first)
+        advanceUntilIdle()
+        // Only the page link is left. It has no field to focus.
+        assertEquals(listOf(link.id), screen.blocks.map { it.id })
+        assertEquals(null, screen.focus?.id)
+    }
+
+    @Test
+    fun enterAfterADeleteUsesThePositionInTheFile() = runTest {
+        val screen = Workspace(this, openDriver = { memoryDriver() }, clock = { 4 })
+        screen.start()
+        screen.enter(screen.blocks.single())
+        advanceUntilIdle()
+        screen.enter(screen.blocks[1])
+        advanceUntilIdle()
+        val (a, b, c) = screen.blocks
+
+        screen.deleteBlock(a)
+        screen.enter(b)
+        advanceUntilIdle()
+
+        val ids = screen.blocks.map { it.id }
+        assertEquals(3, ids.size)
+        assertEquals(b.id, ids[0])
+        assertEquals(c.id, ids[2])
+        assertEquals(listOf(0L, 1L, 2L), screen.blocks.map { it.position })
+    }
+
+    @Test
+    fun aFailedPageDeleteKeepsTheUnsavedDraft() = runTest {
+        var failWrites = false
+        val screen = Workspace(
+            this,
+            openDriver = { failingDriver("BEFORE UPDATE OF deleted_at ON page") },
+            clock = { 4 },
+            writePage = { db, page, blocks, now ->
+                if (failWrites) error("disk")
+                savePage(db, page, blocks, now)
+            },
+        )
+        screen.start()
+        failWrites = true
+        screen.editTitle("Kept")
+
+        assertFails { screen.deletePage() }
+
+        assertEquals("Kept", screen.openPage?.title)
+        assertEquals(SaveState.Failed, screen.saveState)
+        failWrites = false
+        screen.retrySave()
+        advanceUntilIdle()
+        assertEquals(SaveState.Saved, screen.saveState)
+    }
+
+    @Test
+    fun newDuringADeleteMakesNoPageUnderTheDeletedPage() = runTest {
+        val release = CompletableDeferred<Unit>()
+        val screen = Workspace(
+            this,
+            openDriver = { memoryDriver() },
+            clock = { 4 },
+            writePage = { db, page, blocks, now ->
+                release.await()
+                savePage(db, page, blocks, now)
+            },
+        )
+        screen.start()
+        val root = screen.openPage!!.id
+        screen.newChildAndOpen()
+        val doomed = screen.openPage!!.id
+        screen.editTitle("Doomed")
+
+        launch { screen.deletePage() }
+        runCurrent()
+        launch { screen.newChildAndOpen() }
+        runCurrent()
+        release.complete(Unit)
+        advanceUntilIdle()
+
+        val live = screen.pages.map { it.id }.toSet()
+        assertTrue(doomed !in live)
+        assertTrue(screen.pages.all { it.parentId == null || it.parentId in live })
+        assertEquals(root, screen.openPage?.id)
+    }
+}
+
+private suspend fun failingDriver(trigger: String) = memoryDriver().also { driver ->
+    driver.await(null, "CREATE TRIGGER fail $trigger BEGIN SELECT RAISE(ABORT, 'disk'); END", 0)
 }
