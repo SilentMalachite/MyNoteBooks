@@ -1,0 +1,9 @@
+*.iml
+.kotlin
+.gradle
+**/build/
+.idea
+.DS_Store
+local.properties
+node_modules/
+kotlin-js-store/*.log

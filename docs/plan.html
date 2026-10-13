@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Local Block Notebook</title>
+<link rel="stylesheet" href="htmlplan.css">
+<script src="htmlplan.js" defer></script>
+<style data-mock-shared>
+  .ui { font: 13px/1.45 "Segoe UI", sans-serif; color: #1c1b19; background: #fff; border: 1px solid #e4e0d6; border-radius: 10px; overflow: hidden; }
+  .ui .top { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-bottom: 1px solid #eee9dd; color: #6f6a60; font-size: 12px; }
+  .ui .top b { color: #1c1b19; font-size: 13px; }
+  .ui h2 { font-size: 22px; font-weight: 700; margin: 0; padding: 12px 14px 6px; letter-spacing: -0.02em; }
+  .ui .blk { padding: 3px 14px; color: #3c3830; }
+  .ui .blk.h { font-size: 16px; font-weight: 700; color: #1c1b19; padding-top: 8px; }
+  .ui .todo { display: flex; gap: 8px; align-items: center; }
+  .ui .box { width: 13px; height: 13px; border: 1.5px solid #444; border-radius: 3px; display: inline-block; }
+  .ui .row { padding: 6px 12px; }
+  .ui .row.on { background: #f4f0e6; }
+  .ui .child { padding-left: 26px; }
+  .ui .q { padding: 8px 12px; color: #6f6a60; }
+  .ui .q b { color: #1c1b19; background: #fff3bf; padding: 0 3px; }
+  .ui .hit { padding: 7px 12px 8px; border-top: 1px solid #f3efe6; }
+  .ui .hit small { display: block; color: #8a8578; }
+  .ui .win { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; border-bottom: 1px solid #f3efe6; }
+  .ui .win:last-child { border-bottom: 0; }
+  .ui .os { width: 64px; color: #8a8578; font-size: 12px; }
+  .ui .ok { color: #1f7a52; } .ui .bad { color: #b42318; } .ui .dim { color: #8a8578; }
+</style>
+<body>
+<header>
+  <h1>Local Block Notebook on Three Targets</h1>
+  <doc-changes new="14"></doc-changes>
+  <details class="thread"><summary>Why · 1 request</summary>
+    <doc-quote via="prompt" from="the user">KotlinマルチプラットフォームとSQLiteを使って、Windowsとmac、Web版のNotionライクなシステムを構築したいです。計画をねってください。</doc-quote>
+  </details>
+</header>
+<main>
+<doc-plan>
+
+<doc-claim>
+  <p>The user can write a page as a list of blocks.</p>
+  <doc-mock frame="none" w="420" caption="Five block kinds on one page."><template>
+<div class="ui">
+  <h2>Week plan</h2>
+  <div class="blk h">Monday</div>
+  <div class="blk">Write the notes for the plan.</div>
+  <div class="blk todo" data-ref="todo"><span class="box"></span> Send the plan</div>
+  <div class="blk">• Share the page</div>
+  <div class="blk" data-ref="page">↗ Meeting</div>
+</div></template>
+    <doc-pin ref="todo" anchor="l" title="To-do block">A click changes checked.</doc-pin>
+    <doc-pin ref="page" anchor="r" title="Page link">A click opens that page.</doc-pin>
+  </doc-mock>
+
+  <doc-claim>
+    <p>The editor shows the blocks in position order.</p>
+    <doc-calls title="Open a page" caption="One query returns the blocks. The list sorts them by position.">
+<script type="text/plain">
++ **PageEditor**(page)                          @ composeApp/src/commonMain/kotlin/app/editor/PageEditor.kt:14
++   **BlockList**(blocks)                        @ composeApp/src/commonMain/kotlin/app/editor/BlockList.kt:12
++     selectBlocks(pageId)                       @ composeApp/src/commonMain/sqldelight/app/db/Notes.sq:25
++     **insertBlockAfter**(pageId, pos)          @ composeApp/src/commonMain/kotlin/app/editor/BlockList.kt:24
+</script>
+    </doc-calls>
+    <doc-claim at="composeApp/src/commonMain/kotlin/app/editor/BlockList.kt:24">
+      <p><b>BlockList.kt:24</b> · insertBlockAfter()</p>
+      <doc-code title="BlockList.kt · sketch" lang="kotlin" start="24" hl="26">
+<script type="text/plain">
+fun insertBlockAfter(pageId: String, after: Long) {
+    val pos = after + 1
+    queries.shiftPositions(pageId, pos)
+    queries.insertBlock(
+        id = Uuid.random().toString(),
+        pageId = pageId,
+        kind = "text",
+        body = "",
+        checked = 0,
+        position = pos,
+    )
+}
+</script>
+        <doc-pin line="26" title="Later blocks move down by one"></doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The Enter key adds a text block below the cursor.</p>
+    <doc-code title="BlockList.kt · sketch" lang="kotlin">
+<script type="text/plain">
+fun onEnter(block: Block) {
+    if (block.kind == "page") return
+    insertBlockAfter(block.pageId, block.position)
+}
+</script>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>A block kind is one of five values.</p>
+    <doc-code title="BlockList.kt · sketch" lang="kotlin" hl="1">
+<script type="text/plain">
+val blockKinds = setOf("text", "heading", "todo", "bullet", "page")
+
+fun setBlockKind(id: String, kind: String) {
+    require(kind in blockKinds)
+    queries.setKind(kind, id)
+}
+</script>
+      <doc-pin line="1" title="The table stores the kind as text"></doc-pin>
+    </doc-code>
+    <doc-ask id="kinds">
+      <p>Which block kinds does version 1 show?</p>
+      <label><input type="radio" name="kinds" value="five" checked> Text, heading, to-do, bullet, and page link</label>
+      <label><input type="radio" name="kinds" value="eight"> Also code, quote, and divider <small>three more kinds in the Kotlin set</small></label>
+      <label><input type="radio" name="kinds" value="full"> The full Notion set <small>this plan stops; we write a new plan</small></label>
+    </doc-ask>
+    <div data-if="kinds=full"><doc-note tone="warn">This plan stops. A full block set needs a new plan.</doc-note></div>
+  </doc-claim>
+</doc-claim>
+
+<doc-claim>
+  <p>The user can open a page from the side list.</p>
+  <doc-mock frame="none" w="320" caption="The open page sits under its parent."><template>
+<div class="ui">
+  <div class="top"><b>Pages</b><span data-ref="new">New</span></div>
+  <div class="row">Notes</div>
+  <div class="row child on">Week plan</div>
+  <div class="row child">Meeting</div>
+  <div class="row">Ideas</div>
+</div></template>
+    <doc-pin ref="new" anchor="tr" title="New page">See claim 2.2.</doc-pin>
+  </doc-mock>
+
+  <doc-claim>
+    <p>The side list builds the tree from one query.</p>
+    <doc-calls title="The side list" caption="The query skips a row when deleted_at is set. The UI groups the rows.">
+<script type="text/plain">
++ **PageTree**(pages)                           @ composeApp/src/commonMain/kotlin/app/nav/PageTree.kt:12
++   selectPages()                               @ composeApp/src/commonMain/sqldelight/app/db/Notes.sq:19
++   pages.groupBy { it.parentId }               @ composeApp/src/commonMain/kotlin/app/nav/PageTree.kt:20
+</script>
+    </doc-calls>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The New command makes a child of the open page.</p>
+    <doc-code title="PageStore.kt · sketch" lang="kotlin" hl="5">
+<script type="text/plain">
+fun newChild(parentId: String, now: Long) {
+    val id = Uuid.random().toString()
+    queries.insertPage(
+        id = id,
+        parentId = parentId,
+        title = "Untitled",
+        position = queries.nextPosition(parentId),
+        updatedAt = now,
+    )
+    open(id)
+}
+</script>
+      <doc-pin line="5" title="The parent is the open page"></doc-pin>
+    </doc-code>
+    <doc-ask id="place">
+      <p>Where does New put the page?</p>
+      <label><input type="radio" name="place" value="child" checked> Under the open page</label>
+      <label><input type="radio" name="place" value="top"> At the top level <small>the page has no parent</small></label>
+    </doc-ask>
+    <div data-if="place=top"><doc-note tone="info">Claim 2.2 changes. New makes a page with no parent.</doc-note></div>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The app inserts one page when the page count is zero.</p>
+    <doc-code title="PageStore.kt · sketch" lang="kotlin" hl="2">
+<script type="text/plain">
+fun ensureFirstPage(db: NotesDb, now: Long) {
+    if (db.pageQueries.countPages().executeAsOne() == 0L) {
+        val id = Uuid.random().toString()
+        db.pageQueries.insertPage(id, null, "Untitled", 0L, now)
+        db.blockQueries.insertBlock(
+            Uuid.random().toString(), id, "text", "", 0L, 0L,
+        )
+    }
+}
+</script>
+      <doc-pin line="2" title="The first open makes the first page"></doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<doc-claim>
+  <p>The app saves each change in the SQLite file.</p>
+  <doc-machine name="save" caption="The word at the top right is the save state.">
+<script type="text/plain">
+machine save initial clean
+state clean    # The page matches the file.
+state dirty    # The screen and the file differ.
+state saving   # The app writes the file.
+state saved    # The file matches the page.
+state failed   # The write failed and the text stays.
+
+| clean | dirty | saving | saved |
+| .     | .     | failed | .     |
+
+clean  -edit->  dirty    : type
+dirty  -pause-> saving   : 400 ms
+saving -ok->    saved    : commit
+saving -fail->  failed   : error
+saved  -edit->  dirty    : type
+failed -retry-> saving   : retry
+</script>
+    <div data-state="clean"><doc-mock frame="none" w="360"><template><div class="ui"><div class="top"><b>Week plan</b><span class="dim">Ready</span></div></div></template></doc-mock></div>
+    <div data-state="dirty"><doc-mock frame="none" w="360"><template><div class="ui"><div class="top"><b>Week plan</b><span>Not saved</span></div></div></template></doc-mock></div>
+    <div data-state="saving"><doc-mock frame="none" w="360"><template><div class="ui"><div class="top"><b>Week plan</b><span class="dim">Saving</span></div></div></template></doc-mock></div>
+    <div data-state="saved"><doc-mock frame="none" w="360"><template><div class="ui"><div class="top"><b>Week plan</b><span class="ok">Saved</span></div></div></template></doc-mock></div>
+    <div data-state="failed"><doc-mock frame="none" w="360"><template><div class="ui"><div class="top"><b>Week plan</b><span class="bad">Not saved</span></div></div></template></doc-mock></div>
+  </doc-machine>
+
+  <doc-claim>
+    <p>A pause of 400 ms starts one write.</p>
+    <doc-code title="PageEditor.kt · sketch" lang="kotlin" hl="6">
+<script type="text/plain">
+fun onEdit(page: Page, blocks: List<Block>) {
+    draft = page to blocks
+    saveState = SaveState.Dirty
+    job?.cancel()
+    job = scope.launch {
+        delay(400)
+        saveState = SaveState.Saving
+        runCatching { savePage(db, page, blocks, now()) }
+            .onSuccess { saveState = SaveState.Saved }
+            .onFailure { saveState = SaveState.Failed }
+    }
+}
+</script>
+      <doc-pin line="6" title="A new edit waits 400 ms again"></doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>One transaction writes the page and the blocks.</p>
+    <doc-calls title="Save" caption="The page row and the block rows commit together.">
+<script type="text/plain">
++ **savePage**(page, blocks, now)              @ composeApp/src/commonMain/kotlin/app/data/PageStore.kt:18
++   transaction { }                            @ composeApp/src/commonMain/kotlin/app/data/PageStore.kt:19
++     updatePage(title, now, id)               @ composeApp/src/commonMain/sqldelight/app/db/Notes.sq:40
++     updateBlock(body, checked, position, id) @ composeApp/src/commonMain/sqldelight/app/db/Notes.sq:46
+</script>
+    </doc-calls>
+    <doc-claim at="composeApp/src/commonMain/kotlin/app/data/PageStore.kt:18">
+      <p><b>PageStore.kt:18</b> · savePage()</p>
+      <doc-code title="PageStore.kt · sketch" lang="kotlin" start="18" hl="19">
+<script type="text/plain">
+suspend fun savePage(db: NotesDb, page: Page, blocks: List<Block>, now: Long) {
+    db.transaction {
+        db.pageQueries.updatePage(page.title, now, page.id).await()
+        blocks.forEach { b ->
+            db.blockQueries.updateBlock(
+                b.body, b.checked, b.position, b.id,
+            ).await()
+        }
+    }
+}
+</script>
+        <doc-pin line="19" title="A failed write changes no row"></doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Desktop writes a disk file and the web writes OPFS.</p>
+    <doc-calls title="Open the file" caption="Each target has its own driver. The queries stay in commonMain.">
+<script type="text/plain">
+  DriverFactory.createDriver()                 @ composeApp/src/commonMain/kotlin/app/data/DriverFactory.kt:4
+
++ **createDriver**()                           @ composeApp/src/jvmMain/kotlin/app/data/DriverFactory.jvm.kt:8
+
++ **createDriver**()                           @ composeApp/src/wasmJsMain/kotlin/app/data/DriverFactory.wasmJs.kt:9
++   Worker(sqlite.worker.js)                   @ composeApp/src/wasmJsMain/resources/sqlite.worker.js:1
+</script>
+    </doc-calls>
+    <doc-ask id="store">
+      <p>Where does the workspace data stay?</p>
+      <label><input type="radio" name="store" value="file" checked> In a SQLite file on this device <small>no sync in this build</small></label>
+      <label><input type="radio" name="store" value="sync"> Also on a sync server <small>this plan stops; sync is a new plan</small></label>
+    </doc-ask>
+    <div data-if="store=sync"><doc-note tone="warn">This plan stops. A sync server needs a new plan.</doc-note></div>
+    <doc-note tone="warn">Set COOP and COEP on the web host. If you omit them, the browser deletes the data when the user closes the tab.</doc-note>
+    <doc-claim at="composeApp/src/jvmMain/kotlin/app/data/DriverFactory.jvm.kt:8">
+      <p><b>DriverFactory.jvm.kt:8</b> · createDriver()</p>
+      <doc-code title="DriverFactory.jvm.kt · sketch" lang="kotlin" start="8" hl="9">
+<script type="text/plain">
+actual suspend fun createDriver(): SqlDriver {
+    val file = File(System.getProperty("user.home"), ".notebook/notebook.db")
+    file.parentFile.mkdirs()
+    val driver = JdbcSqliteDriver("jdbc:sqlite:${file.path}")
+    NotesDb.Schema.create(driver).await()
+    return driver
+}
+</script>
+        <doc-pin line="9" title="Same path rule on Windows and on Mac">create() runs on an empty file. A file that exists uses migrate().</doc-pin>
+      </doc-code>
+    </doc-claim>
+    <doc-claim at="composeApp/src/wasmJsMain/kotlin/app/data/DriverFactory.wasmJs.kt:9">
+      <p><b>DriverFactory.wasmJs.kt:9</b> · createDriver()</p>
+      <doc-code title="DriverFactory.wasmJs.kt · sketch" lang="kotlin" start="9" hl="11">
+<script type="text/plain">
+actual suspend fun createDriver(): SqlDriver {
+    val script = js("""new URL("sqlite.worker.js", import.meta.url)""")
+    val worker = Worker(script.unsafeCast<String>())
+    val driver = WebWorkerDriver(worker)
+    NotesDb.Schema.create(driver).await()
+    return driver
+}
+</script>
+        <doc-pin line="11" title="The worker must use SQLite WASM on OPFS">The stock sql.js worker keeps no file.</doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+</doc-claim>
+
+<doc-claim>
+  <p>The user can find a page by words in the title.</p>
+  <doc-mock frame="none" w="360" caption="The list shows pages whose title contains the words."><template>
+<div class="ui">
+  <div class="q">Search <b data-ref="q">plan</b></div>
+  <div class="hit"><b>Week plan</b><small>Notes</small></div>
+</div></template>
+    <doc-pin ref="q" title="Title text only">The block text is not in this match.</doc-pin>
+  </doc-mock>
+
+  <doc-claim>
+    <p>The search query matches the title with LIKE.</p>
+    <doc-calls title="Search" caption="The side list stays. This list is the matches.">
+<script type="text/plain">
++ **TitleSearch**(query)                       @ composeApp/src/commonMain/kotlin/app/search/TitleSearch.kt:10
++   searchByTitle(query)                       @ composeApp/src/commonMain/sqldelight/app/db/Notes.sq:31
+</script>
+    </doc-calls>
+    <doc-ask id="search">
+      <p>Which text can the search match?</p>
+      <label><input type="radio" name="search" value="title" checked> The page title only</label>
+      <label><input type="radio" name="search" value="body"> The title and the block text <small>the query also reads block.body</small></label>
+    </doc-ask>
+    <div data-if="search=body"><doc-note tone="info">The query also reads block.body. The title claim stays.</doc-note></div>
+    <doc-claim at="composeApp/src/commonMain/sqldelight/app/db/Notes.sq:31">
+      <p><b>Notes.sq:31</b> · searchByTitle</p>
+      <doc-code title="Notes.sq · sketch" lang="sql" start="31">
+<script type="text/plain">
+searchByTitle:
+SELECT id, parent_id, title
+FROM page
+WHERE deleted_at IS NULL
+  AND title LIKE '%' || ? || '%'
+ORDER BY updated_at DESC;
+</script>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+</doc-claim>
+
+<doc-claim>
+  <p>One shared UI runs on Windows, Mac, and the web.</p>
+  <doc-mock frame="none" w="360" caption="The three targets show this page title."><template>
+<div class="ui">
+  <div class="win"><span class="os">Windows</span><b>Week plan</b></div>
+  <div class="win"><span class="os">Mac</span><b>Week plan</b></div>
+  <div class="win" data-ref="web"><span class="os">Web</span><b>Week plan</b></div>
+</div></template>
+    <doc-pin ref="web" anchor="r" title="Same screen">Compose draws all three.</doc-pin>
+  </doc-mock>
+  <doc-note tone="risk">Test Japanese input on the web target before you release it.</doc-note>
+
+  <doc-claim>
+    <p>App() in commonMain draws the screen on each target.</p>
+    <doc-calls title="Two entry points" caption="Windows and Mac use the jvm entry. The web uses the wasmJs entry.">
+<script type="text/plain">
++ **main**()                                   @ composeApp/src/jvmMain/kotlin/main.kt:3
++   **App**()                                  @ composeApp/src/commonMain/kotlin/app/App.kt:8
++     **WorkspaceScreen**()                    @ composeApp/src/commonMain/kotlin/app/App.kt:11
+
++ **main**()                                   @ composeApp/src/wasmJsMain/kotlin/main.kt:4
++   App()                                      @ composeApp/src/commonMain/kotlin/app/App.kt:8
+</script>
+    </doc-calls>
+    <doc-claim at="composeApp/src/commonMain/kotlin/app/App.kt:8">
+      <p><b>App.kt:8</b> · App()</p>
+      <doc-code title="App.kt · sketch" lang="kotlin" start="8">
+<script type="text/plain">
+@Composable
+fun App() {
+    val screen = rememberWorkspace()
+    WorkspaceScreen(
+        pages = screen.pages,
+        page = screen.openPage,
+        blocks = screen.blocks,
+        onOpen = screen::open,
+        onChange = screen::edit,
+    )
+}
+</script>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The module has one jvm target and one wasmJs target.</p>
+    <doc-code title="build.gradle.kts · sketch" lang="kotlin" hl="3,4,10">
+<script type="text/plain">
+// Compose Multiplatform 1.12.1. SQLDelight 2.4.1.
+kotlin {
+    jvm()
+    wasmJs { browser() }
+}
+sqldelight {
+    databases.create("NotesDb") {
+        packageName.set("app.db")
+        generateAsync.set(true)
+    }
+}
+</script>
+      <doc-pin line="3" title="One jvm target builds Windows and Mac"></doc-pin>
+      <doc-pin line="4" title="wasmJs builds the web app"></doc-pin>
+      <doc-pin line="10" title="The web driver is async">The shared queries use the async API.</doc-pin>
+    </doc-code>
+    <doc-ask id="ui">
+      <p>Do the three targets share one Compose UI?</p>
+      <label><input type="radio" name="ui" value="compose" checked> Yes. One UI in commonMain.</label>
+      <label><input type="radio" name="ui" value="split"> No. The web UI is HTML. <small>the web UI is a new plan</small></label>
+    </doc-ask>
+    <div data-if="ui=split"><doc-note tone="warn">The wasmJs screen goes. The web UI needs a new plan.</doc-note></div>
+  </doc-claim>
+</doc-claim>
+
+<doc-claim aux="shared">
+  <p>Shared: two new tables.</p>
+  <doc-schema id="tables" lang="sql" diff title="Notes.sq" caption="Green lines are the new tables. Queries live in the same file.">
+<script type="text/plain">
++CREATE TABLE page (
++  id         TEXT NOT NULL PRIMARY KEY,
++  parent_id  TEXT,
++  title      TEXT NOT NULL,
++  position   INTEGER NOT NULL,
++  updated_at INTEGER NOT NULL,
++  deleted_at INTEGER
++);
++
++CREATE TABLE block (
++  id       TEXT NOT NULL PRIMARY KEY,
++  page_id  TEXT NOT NULL,
++  kind     TEXT NOT NULL,
++  body     TEXT NOT NULL,
++  checked  INTEGER NOT NULL DEFAULT 0,
++  position INTEGER NOT NULL
++);
+</script>
+  </doc-schema>
+</doc-claim>
+
+<doc-claim aux="scope">
+  <p>Not in this build: sync, accounts, files, and live edit.</p>
+  <ul>
+    <li>No sync, no account, and no login.</li>
+    <li>No image, no file upload, and no trash view.</li>
+    <li>No board, no table view, no calendar, no comment, and no share link.</li>
+    <li>Two people cannot edit one page at one time.</li>
+    <li>No iOS app and no Android app.</li>
+    <li>The Gradle wrapper comes from the Compose template.</li>
+  </ul>
+</doc-claim>
+
+</doc-plan>
+</main>
+</body>
+</html>

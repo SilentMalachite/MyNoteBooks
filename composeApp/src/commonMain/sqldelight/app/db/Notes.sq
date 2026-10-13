@@ -1,0 +1,76 @@
+CREATE TABLE page (
+  id         TEXT NOT NULL PRIMARY KEY,
+  parent_id  TEXT,
+  title      TEXT NOT NULL,
+  position   INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+
+CREATE TABLE block (
+  id       TEXT NOT NULL PRIMARY KEY,
+  page_id  TEXT NOT NULL,
+  kind     TEXT NOT NULL,
+  body     TEXT NOT NULL,
+  checked  INTEGER NOT NULL DEFAULT 0,
+  position INTEGER NOT NULL
+);
+
+selectPages:
+SELECT id, parent_id, title, position, updated_at
+FROM page
+WHERE deleted_at IS NULL
+ORDER BY position ASC;
+
+countPages:
+SELECT COUNT(*) AS count
+FROM page
+WHERE deleted_at IS NULL;
+
+insertPage:
+INSERT INTO page(id, parent_id, title, position, updated_at)
+VALUES (:id, :parentId, :title, :position, :updatedAt);
+
+nextPosition:
+SELECT COALESCE(MAX(position), -1) + 1 AS next_position
+FROM page
+WHERE deleted_at IS NULL
+  AND parent_id IS :parentId;
+
+selectBlocks:
+SELECT id, page_id, kind, body, checked, position
+FROM block
+WHERE page_id = :pageId
+ORDER BY position ASC;
+
+insertBlock:
+INSERT INTO block(id, page_id, kind, body, checked, position)
+VALUES (:id, :pageId, :kind, :body, :checked, :position);
+
+shiftPositions:
+UPDATE block
+SET position = position + 1
+WHERE page_id = :pageId
+  AND position >= :position;
+
+setKind:
+UPDATE block
+SET kind = :kind
+WHERE id = :id;
+
+updatePage:
+UPDATE page
+SET title = :title, updated_at = :updatedAt
+WHERE id = :id;
+
+updateBlock:
+UPDATE block
+SET body = :body, checked = :checked
+WHERE id = :id;
+
+searchByTitle:
+SELECT id, parent_id, title
+FROM page
+WHERE deleted_at IS NULL
+  AND title LIKE '%' || :query || '%' ESCAPE '\'
+ORDER BY updated_at DESC;
