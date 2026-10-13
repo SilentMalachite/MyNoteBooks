@@ -3,6 +3,7 @@ package app.data
 import app.cash.sqldelight.async.coroutines.awaitAsList
 import app.cash.sqldelight.async.coroutines.awaitAsOne
 import app.db.NotesDb
+import app.nav.liftChildren
 import kotlin.uuid.Uuid
 
 suspend fun ensureFirstPage(db: NotesDb, now: Long) {
@@ -50,10 +51,19 @@ fun exitStatements(page: Page, blocks: List<Block>, now: Long): List<ExitStateme
 suspend fun savePage(db: NotesDb, page: Page, blocks: List<Block>, now: Long) {
     db.transaction {
         db.notesQueries.updatePage(page.title, now, page.id)
-        // Only insertBlockAfter moves blocks. A draft can hold positions from before an insert.
+        // Only insertBlockAfter and removeBlock move blocks. A draft can hold old positions.
         blocks.forEach { block ->
             db.notesQueries.updateBlock(block.body, block.checked, block.id)
         }
+    }
+}
+
+// The page row and its blocks stay in the file with deleted_at set.
+suspend fun removePage(db: NotesDb, id: String, now: Long) {
+    db.transaction {
+        val moved = liftChildren(listPages(db), id)
+        db.notesQueries.markDeleted(now, id)
+        moved.forEach { db.notesQueries.movePage(it.parentId, it.position, it.id) }
     }
 }
 

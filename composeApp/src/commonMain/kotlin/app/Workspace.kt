@@ -11,14 +11,17 @@ import app.data.ExitStatement
 import app.data.createDriver
 import app.data.ensureFirstPage
 import app.data.exitStatements
+import app.data.keepsData
 import app.data.listBlocks
 import app.data.listPages
 import app.data.newChild
+import app.data.removePage
 import app.data.savePage
 import app.db.NotesDb
 import app.editor.SaveController
 import app.editor.SaveState
 import app.editor.insertBlockAfter
+import app.editor.removeBlock
 import app.editor.setBlockKind
 import app.search.titleSearch
 import kotlin.time.Clock
@@ -29,11 +32,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+// seq makes each request new, so focus can come back to a block that had it before.
+data class FocusRequest(val id: String, val seq: Int)
+
 class Workspace(
     private val scope: CoroutineScope,
     private val openDriver: suspend () -> SqlDriver = ::createDriver,
     private val clock: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val writePage: suspend (NotesDb, Page, List<Block>, Long) -> Unit = ::savePage,
+    private val readKeepsData: suspend (SqlDriver) -> Boolean = ::keepsData,
 ) {
     var opening by mutableStateOf(true)
         private set
@@ -49,13 +56,16 @@ class Workspace(
         private set
     var hits by mutableStateOf<List<TitleHit>>(emptyList())
         private set
-    var focusId by mutableStateOf<String?>(null)
+    var focus by mutableStateOf<FocusRequest?>(null)
+        private set
+    var keepsData by mutableStateOf(true)
         private set
 
     val saveState: SaveState get() = saver.state
 
     private var database: NotesDb? = null
     private var searchJob: Job? = null
+    private var focusSeq = 0
     private val gate = Mutex()
     private val saver = SaveController(scope) { page, pageBlocks ->
         withDb { db -> writePage(db, page, pageBlocks, clock()) }
@@ -63,12 +73,15 @@ class Workspace(
 
     suspend fun start() {
         try {
-            val db = NotesDb(openDriver())
+            val driver = openDriver()
+            val db = NotesDb(driver)
             database = db
+            keepsData = readKeepsData(driver)
             installExitFlush(
                 onHide = {
+                    // A batch must not cut into a write that holds the gate. Its ROLLBACK would undo half of it.
                     saveOnHide(
-                        saving = saver.state == SaveState.Saving,
+                        saving = saver.state == SaveState.Saving || gate.isLocked,
                         postBatch = { postExitBatch(pendingExitStatements()) },
                         scheduleFlush = { scope.launch { flush() } },
                     )
@@ -109,7 +122,11 @@ class Workspace(
         if (database == null) return
         saver.flush()
         if (saver.state == SaveState.Failed) return
-        val id = withDb { open -> newChild(open, parent.id, clock()) { } }
+        val id = withDb { open ->
+            // The page can be deleted while the save ran.
+            if (listPages(open).none { it.id == parent.id }) return@withDb null
+            newChild(open, parent.id, clock()) { }
+        } ?: return
         show(id)
     }
 
@@ -142,17 +159,64 @@ class Workspace(
             saver.flush()
             if (saver.state == SaveState.Failed) return@launchDb
             val inserted = withDb { db ->
-                val id = insertBlockAfter(db, block.pageId, block.position)
+                // A delete above can move the block after the key press.
+                val current = listBlocks(db, block.pageId).firstOrNull { it.id == block.id } ?: return@withDb null
+                val id = insertBlockAfter(db, block.pageId, current.position)
                 id to listBlocks(db, block.pageId)
-            }
+            } ?: return@launchDb
             if (openPage?.id != block.pageId) return@launchDb
-            // Keep text typed while the insert ran. The file has the new positions.
-            val local = blocks.associateBy { it.id }
-            blocks = inserted.second.map { fresh ->
-                local[fresh.id]?.let { fresh.copy(body = it.body, checked = it.checked) } ?: fresh
-            }
-            focusId = inserted.first
+            keepLocalText(inserted.second)
+            focusOn(inserted.first)
         }
+    }
+
+    fun deleteBlock(block: Block) {
+        if (database == null || openPage?.id != block.pageId) return
+        val index = blocks.indexOfFirst { it.id == block.id }
+        if (index < 0 || blocks.size <= 1) return
+        // The row leaves the screen now, so keys typed during the delete go to the block above.
+        blocks = blocks.filterNot { it.id == block.id }
+        focusNear(index - 1)
+        launchDb {
+            try {
+                withDb { db -> removeBlock(db, block) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (cause: Throwable) {
+                // The transaction did not commit, so the file still has the block.
+                if (openPage?.id == block.pageId && blocks.none { it.id == block.id }) {
+                    blocks = blocks.toMutableList().apply { add(index.coerceAtMost(size), block) }
+                }
+                throw cause
+            }
+            val remaining = withDb { db -> listBlocks(db, block.pageId) }
+            if (openPage?.id != block.pageId) return@launchDb
+            // A block that the file kept comes back.
+            keepLocalText(remaining)
+        }
+    }
+
+    fun deletePageLater() {
+        launchDb { deletePage() }
+    }
+
+    // Subpages move up to the parent. The app opens the parent, or the first top-level page.
+    suspend fun deletePage() {
+        val page = openPage ?: return
+        if (database == null) return
+        saver.flush()
+        val next = withDb { db ->
+            removePage(db, page.id, clock())
+            ensureFirstPage(db, clock())
+            val left = listPages(db)
+            page.parentId?.takeIf { parent -> left.any { it.id == parent } }
+                ?: left.first { it.parentId == null }.id
+        }
+        // A draft that could not be saved belongs to a page that is gone.
+        // If the delete failed, the draft stays for retry and the exit batch.
+        saver.discard()
+        show(next)
+        editQuery(query)
     }
 
     fun changeKind(id: String, kind: String) {
@@ -204,8 +268,28 @@ class Workspace(
         openPage = page
         blocks = loadedBlocks
         saver.markClean()
-        focusId = null
+        focus = null
         error = null
+    }
+
+    // Keep text typed while a write ran. The file has the new positions.
+    private fun keepLocalText(fresh: List<Block>) {
+        val local = blocks.associateBy { it.id }
+        blocks = fresh.map { row ->
+            local[row.id]?.let { row.copy(body = it.body, checked = it.checked) } ?: row
+        }
+    }
+
+    private fun focusOn(id: String) {
+        focusSeq += 1
+        focus = FocusRequest(id, focusSeq)
+    }
+
+    // A page link has no field, so focus goes to the nearest text block above, then below.
+    private fun focusNear(index: Int) {
+        val target = blocks.take(index + 1).lastOrNull { it.kind != "page" }
+            ?: blocks.drop(index + 1).firstOrNull { it.kind != "page" }
+        if (target == null) focus = null else focusOn(target.id)
     }
 
     // A failed query shows a message. It must not end the app.

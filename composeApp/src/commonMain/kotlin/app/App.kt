@@ -33,6 +33,9 @@ import app.theme.Ink
 import app.theme.Line
 import app.theme.Mute
 import app.theme.Paper
+import app.theme.Warn
+import app.theme.WarnInk
+import app.theme.WarnLine
 
 @Composable
 fun App() {
@@ -56,12 +59,26 @@ fun WorkspaceScreen(screen: Workspace) {
     when {
         screen.opening -> Status("Opening the notebook")
         screen.error != null && screen.openPage == null -> Status(screen.error ?: "The notebook could not open.")
-        else -> Row(Modifier.fillMaxSize().background(Paper)) {
-            PageRail(screen, Modifier.width(260.dp).fillMaxHeight())
-            Box(Modifier.width(1.dp).fillMaxHeight().background(Line))
-            PageEditor(screen, Modifier.weight(1f).fillMaxHeight())
+        else -> Column(Modifier.fillMaxSize().background(Paper)) {
+            if (!screen.keepsData) StorageBand()
+            Row(Modifier.weight(1f)) {
+                PageRail(screen, Modifier.width(260.dp).fillMaxHeight())
+                Box(Modifier.width(1.dp).fillMaxHeight().background(Line))
+                PageEditor(screen, Modifier.weight(1f).fillMaxHeight())
+            }
         }
     }
+}
+
+@Composable
+private fun StorageBand() {
+    Text(
+        "This browser cannot keep your notes. They go away when you close or reload the tab.",
+        color = WarnInk,
+        fontSize = 13.sp,
+        modifier = Modifier.fillMaxWidth().background(Warn).padding(horizontal = 14.dp, vertical = 8.dp),
+    )
+    Box(Modifier.fillMaxWidth().height(1.dp).background(WarnLine))
 }
 
 @Composable

@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Delete and Storage Plan</title>
+<link rel="stylesheet" href="/Users/hiro/.claude/plugins/cache/claude-community/html-plan/1.0.0/skills/html-plan/runtime/htmlplan.css">
+<script src="/Users/hiro/.claude/plugins/cache/claude-community/html-plan/1.0.0/skills/html-plan/runtime/htmlplan.js" defer></script>
+<style data-mock-shared>
+  .ui { font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1c1b19; background: #fffdf8; border: 1px solid #e4e0d6; border-radius: 8px; overflow: hidden; }
+  .ui .hd { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid #e4e0d6; }
+  .ui .hd .t { font-size: 20px; font-weight: 700; flex: 1; }
+  .ui .mute { color: #6f6a60; font-size: 12.5px; }
+  .ui .ok { color: #1f7a52; font-size: 12.5px; }
+  .ui .bad { color: #b42318; }
+  .ui .row { display: flex; align-items: center; gap: 8px; padding: 3px 10px; }
+  .ui .kind { width: 64px; color: #6f6a60; font-size: 12px; }
+  .ui .cur { border-left: 2px solid #1c1b19; height: 16px; }
+  .ui .gone { color: #b42318; text-decoration: line-through; opacity: .7; }
+  .ui .menu { margin: 0 0 6px 10px; width: 120px; border: 1px solid #e4e0d6; background: #fffdf8; font-size: 13px; }
+  .ui .menu div { padding: 5px 12px; } .ui .menu .del { border-top: 1px solid #e4e0d6; color: #b42318; }
+  .ui .confirm { display: flex; align-items: center; gap: 12px; padding: 9px 14px; background: #fbf1ef; border-bottom: 1px solid #e4e0d6; font-size: 13px; }
+  .ui .confirm span:first-child { flex: 1; }
+  .ui .btn { font-weight: 600; font-size: 12.5px; padding: 4px 10px; border: 1px solid #e4e0d6; border-radius: 6px; background: #fff; }
+  .ui .btn.red { background: #b42318; color: #fff; border-color: #b42318; }
+  .ui .band { padding: 8px 14px; background: #fdf3d8; border-bottom: 1px solid #ecd9a0; color: #6b4e00; font-size: 13px; }
+  .ui .cols { display: flex; min-height: 92px; } .ui .rail { width: 120px; border-right: 1px solid #e4e0d6; padding: 8px 10px; font-size: 13px; } .ui .rail div { padding: 3px 0; } .ui .main { flex: 1; padding: 8px 12px; }
+</style>
+<body>
+
+<header>
+  <h1>Deleting Blocks and Pages, Storage Warning</h1>
+  <doc-changes changed="15"></doc-changes>
+  <details class="thread"><summary>Why · 2 requests</summary>
+    <doc-quote via="prompt" from="the user">その3つを実装する前に実装計画を立ててください</doc-quote>
+    <doc-quote via="prompt" from="Claude" where="the list the user picked from">ブロック削除、ページ削除、OPFS が使えないときの警告の3つを先に入れると、実用の最低ラインに届きます。</doc-quote>
+  </details>
+</header>
+
+<main>
+<doc-plan>
+
+<!-- ═════ 1 · block delete ═════ -->
+<doc-claim>
+  <p>The user can delete a block. Backspace in an empty block deletes it.</p>
+  <doc-mock frame="none" w="420"><template>
+<div class="ui">
+  <div class="row"><span class="kind">To-do</span><span>Send the plan</span><span class="cur"></span></div>
+  <div class="row gone" data-ref="gone"><span class="kind">Text</span><span>(empty)</span></div>
+  <div class="row"><span class="kind">Bullet</span><span>Share the page</span></div>
+</div></template>
+    <doc-pin ref="gone" anchor="r" title="Backspace here">The row goes. The cursor moves to the row above.</doc-pin>
+  </doc-mock>
+
+  <doc-claim>
+    <p>Backspace in an empty field calls <code>deleteBlock()</code> and focuses the block above.</p>
+    <doc-calls title="Backspace" caption="The flow copies enter(): flush, write, merge the list.">
+<script type="text/plain">
+~ BlockField()                                   @ composeApp/src/commonMain/kotlin/app/editor/BlockList.kt:251
++   Backspace and body is empty → onDelete()     @ composeApp/src/commonMain/kotlin/app/editor/BlockList.kt:274
++ Workspace.**deleteBlock**(block)               @ composeApp/src/commonMain/kotlin/app/Workspace.kt:156
+    saver.flush()                                @ composeApp/src/commonMain/kotlin/app/editor/PageEditor.kt:98
++   **removeBlock**(db, block)                   @ composeApp/src/commonMain/kotlin/app/editor/BlockList.kt:62
+    listBlocks(db, pageId)                       @ composeApp/src/commonMain/kotlin/app/data/PageStore.kt:66
++   focus the block above                        @ composeApp/src/commonMain/kotlin/app/Workspace.kt:52   -- a new request each time
+</script>
+    </doc-calls>
+    <doc-claim at="composeApp/src/commonMain/kotlin/app/editor/BlockList.kt:274">
+      <p><b>BlockList.kt:274</b> · BlockField key handler</p>
+      <doc-code diff file="composeApp/src/commonMain/kotlin/app/editor/BlockList.kt" start="273">
+<script type="text/plain">
+             .focusRequester(requester)
+             .onPreviewKeyEvent { event ->
+-                // The key up of the Enter that commits IME text arrives as a plain Enter on the web.
+-                if (event.type == KeyEventType.KeyDown && (event.key == Key.Enter || …)) {
+-                    onEnter()
+-                    true
+-                } else {
+-                    false
+-                }
++                // The key up of the Enter that commits IME text … on the web.
++                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
++                when (event.key) {
++                    Key.Enter, Key.NumPadEnter -> { onEnter(); true }
++                    Key.Backspace if body.isEmpty() -> { onDelete(); true }
++                    else -> false
++                }
+             }
+</script>
+        <doc-pin line="279" tone="info" title="Only when the field is empty">IME text in composition is part of body, so the IME keeps its Backspace.</doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>A page always keeps one block. The last block cannot go.</p>
+    <doc-code title="BlockList.kt · sketch" lang="kotlin" hl="3">
+<script type="text/plain">
+suspend fun removeBlock(db: NotesDb, block: Block): Boolean {
+    var removed = false
+    db.transaction {
+        if (db.notesQueries.countBlocks(block.pageId).awaitAsOne() <= 1L) return@transaction
+        db.notesQueries.deleteBlock(block.id)
+        db.notesQueries.closeGap(block.pageId, block.position)
+        removed = true
+    }
+    return removed
+}
+</script>
+      <doc-pin line="4" tone="ok" title="Checked inside the transaction"></doc-pin>
+      <doc-pin line="6" title="Positions stay 0, 1, 2 with no gap"></doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The kind menu gets a Delete item. A page link has no text field.</p>
+    <doc-mock frame="none" w="300"><template>
+<div class="ui">
+  <div class="row"><span class="kind">Page</span><span>↗ Meeting</span></div>
+  <div class="menu"><div>Text</div><div>Heading</div><div>To-do</div><div>Bullet</div><div>Page</div><div class="del" data-ref="del">Delete</div></div>
+</div></template>
+      <doc-pin ref="del" anchor="r" title="New item">The same removeBlock() runs.</doc-pin>
+    </doc-mock>
+    <doc-ask id="blockmenu">
+      <p>Does the kind menu get a Delete item?</p>
+      <label><input type="radio" name="blockmenu" value="yes" checked> Yes <small>the only way to delete a page link</small></label>
+      <label><input type="radio" name="blockmenu" value="no"> No, Backspace only <small>page links stay until their kind changes</small></label>
+    </doc-ask>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Focus moves again to a block that had focus before.</p>
+    <doc-code title="Workspace.kt · sketch" lang="kotlin">
+<script type="text/plain">
+data class FocusRequest(val id: String, val seq: Int)
+
+var focus by mutableStateOf<FocusRequest?>(null)
+    private set
+
+private fun focusOn(id: String) {
+    focus = FocusRequest(id, (focus?.seq ?: 0) + 1)
+}
+// BlockField: LaunchedEffect(focusSeq) { if (focused) requester.requestFocus() }
+</script>
+    </doc-code>
+    <doc-note tone="warn"><strong>Limit</strong> The cursor goes back to its last place in the field, not always to the end.</doc-note>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 2 · page delete ═════ -->
+<doc-claim>
+  <p>The user can delete the open page after one confirm step.</p>
+  <doc-mock frame="none" w="460"><template>
+<div class="ui">
+  <div class="hd"><span class="t">Week plan</span><span class="mute" data-ref="del">Delete</span><span class="ok">Saved</span></div>
+  <div class="confirm" data-ref="confirm"><span>Delete “Week plan”? Its subpages move up.</span><span class="btn red">Delete</span><span class="btn">Cancel</span></div>
+  <div class="row"><span class="kind">Text</span><span>Monday</span></div>
+</div></template>
+    <doc-pin ref="del" anchor="tl" title="New action in the header">It shows on every page.</doc-pin>
+    <doc-pin ref="confirm" anchor="bl" title="One line. No dialog">The second sentence shows only when the page has subpages.</doc-pin>
+  </doc-mock>
+  <doc-ask id="confirm">
+    <p>Must the user confirm before the page goes?</p>
+    <label><input type="radio" name="confirm" value="inline" checked> Yes, a confirm line in the header</label>
+    <label><input type="radio" name="confirm" value="none"> No, it goes at once <small>no trash view brings it back</small></label>
+  </doc-ask>
+
+  <doc-claim>
+    <p>Delete sets <code>deleted_at</code> on the open page only.</p>
+    <doc-calls title="Delete page" caption="One transaction marks the page and moves its subpages.">
+<script type="text/plain">
++ <PageEditor/> Delete → confirm                 @ composeApp/src/commonMain/kotlin/app/editor/PageEditor.kt:158
++ Workspace.**deletePage**()                     @ composeApp/src/commonMain/kotlin/app/Workspace.kt:166
+    saver.flush()                                @ composeApp/src/commonMain/kotlin/app/editor/PageEditor.kt:98
++   saver.**discard**()                          @ composeApp/src/commonMain/kotlin/app/editor/PageEditor.kt:114   -- a failed draft of a deleted page
++   **removePage**(db, id, now)                  @ composeApp/src/commonMain/kotlin/app/data/PageStore.kt:58
++     **liftChildren**(pages, id)                @ composeApp/src/commonMain/kotlin/app/nav/PageTree.kt:34
++     UPDATE page SET deleted_at                 @ composeApp/src/commonMain/sqldelight/app/db/Notes.sq:64
++     UPDATE page SET parent_id, position        @ composeApp/src/commonMain/sqldelight/app/db/Notes.sq:64
+    ensureFirstPage(db, now)                     @ composeApp/src/commonMain/kotlin/app/data/PageStore.kt:8   -- does nothing while a page is left
+    show(next)                                   @ composeApp/src/commonMain/kotlin/app/Workspace.kt:195
+~   editQuery(query)                             @ composeApp/src/commonMain/kotlin/app/Workspace.kt:168   -- run the search again
+</script>
+    </doc-calls>
+    <doc-claim at="composeApp/src/commonMain/kotlin/app/data/PageStore.kt:58">
+      <p><b>PageStore.kt:58</b> · removePage()</p>
+      <doc-code title="PageStore.kt · sketch" lang="kotlin">
+<script type="text/plain">
+suspend fun removePage(db: NotesDb, id: String, now: Long) {
+    db.transaction {
+        val moved = liftChildren(listPages(db), id)
+        db.notesQueries.markDeleted(now, id)
+        moved.forEach { db.notesQueries.movePage(it.parentId, it.position, it.id) }
+    }
+}
+</script>
+        <doc-pin line="3" tone="ok" title="Read inside the transaction"></doc-pin>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Subpages move up to the parent of the deleted page.</p>
+    <doc-code title="PageTree.kt · sketch" lang="kotlin">
+<script type="text/plain">
+// The children take the place of the page, in their own order.
+fun liftChildren(pages: List<Page>, id: String): List<Page> {
+    val page = pages.firstOrNull { it.id == id } ?: return emptyList()
+    val siblings = pages.filter { it.parentId == page.parentId }.sortedBy { it.position }
+    val children = pages.filter { it.parentId == id }.sortedBy { it.position }
+    return siblings.flatMap { if (it.id == id) children else listOf(it) }
+        .mapIndexed { index, it -> it.copy(parentId = page.parentId, position = index.toLong()) }
+}
+</script>
+      <doc-pin line="7" title="Positions start again at 0">Old gaps in the positions go away.</doc-pin>
+    </doc-code>
+    <doc-ask id="children">
+      <p>What happens to the subpages?</p>
+      <label><input type="radio" name="children" value="delete"> They go with the page</label>
+      <label><input type="radio" name="children" value="lift" checked> They move up to the parent <small>the confirm line loses its count</small></label>
+    </doc-ask>
+  </doc-claim>
+
+  <doc-claim>
+    <p>The app opens the parent. If no page is left, it makes “Untitled”.</p>
+    <doc-code title="Workspace.kt · sketch" lang="kotlin">
+<script type="text/plain">
+suspend fun deletePage() {
+    val page = openPage ?: return
+    if (database == null) return
+    saver.flush()
+    saver.discard()
+    val next = withDb { db ->
+        removePage(db, page.id, clock())
+        ensureFirstPage(db, clock())
+        page.parentId ?: listPages(db).first { it.parentId == null }.id
+    }
+    show(next)
+    editQuery(query)
+}
+</script>
+      <doc-pin line="9" tone="info" title="A top-level page">The app opens the first top-level page. This can be a lifted subpage.</doc-pin>
+    </doc-code>
+    <doc-ask id="root">
+      <p>Can the user delete the last top-level page?</p>
+      <label><input type="radio" name="root" value="no"> No, Delete does not show on it</label>
+      <label><input type="radio" name="root" value="yes" checked> Yes <small>all pages go; the app makes one “Untitled”</small></label>
+    </doc-ask>
+  </doc-claim>
+
+  <doc-claim>
+    <p>A page link to a deleted page shows “Missing page”.</p>
+    <doc-code src="composeApp/src/commonMain/kotlin/app/editor/BlockList.kt" lines="194-200" hl="197">
+      <doc-pin line="197" tone="ok" title="This works today">pages has no deleted rows. No change.</doc-pin>
+    </doc-code>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ 3 · storage warning ═════ -->
+<doc-claim>
+  <p>The web app warns the user when it cannot keep the notes.</p>
+  <doc-mock frame="browser" url="notes.example.com" w="460"><template>
+<div class="ui" style="border:0;border-radius:0">
+  <div class="band" data-ref="band">This browser cannot keep your notes. They go away when you close or reload the tab.</div>
+  <div class="cols"><div class="rail"><div><b>Pages</b></div><div>Untitled</div></div><div class="main"><b>Untitled</b></div></div>
+</div></template>
+    <doc-pin ref="band" anchor="br" title="Always on top">The band stays while the tab is open.</doc-pin>
+  </doc-mock>
+  <doc-ask id="memory">
+    <p>What does the app do when it cannot keep the notes?</p>
+    <label><input type="radio" name="memory" value="warn" checked> It opens, with the warning band</label>
+    <label><input type="radio" name="memory" value="block"> It does not open <small>it shows only the message</small></label>
+  </doc-ask>
+
+  <doc-claim>
+    <p>The worker tells which store it opened, through one SQL function.</p>
+    <doc-code diff file="composeApp/src/wasmJsMain/resources/sqlite.worker.js" start="5">
+<script type="text/plain">
+ async function createDatabase() {
+   const sqlite3 = await sqlite3InitModule();
++  let mode = "memory";
+   if ("opfs" in sqlite3 && sqlite3.oo1.OpfsDb) {
+     db = new sqlite3.oo1.OpfsDb("/notebook.db");
++    mode = "opfs";
+   } else {
+     db = new sqlite3.oo1.DB("/notebook.db", "ct");
+   }
++  db.createFunction("storage_mode", () => mode, { deterministic: true });
+ }
+</script>
+      <doc-pin line="14" tone="info" title="No new message type">The stock WebWorkerDriver can call it with SELECT.</doc-pin>
+    </doc-code>
+  </doc-claim>
+
+  <doc-claim>
+    <p>Workspace reads the mode once at start. Desktop always keeps the notes.</p>
+    <doc-calls title="Start" caption="Tests give their own keepsData value.">
+<script type="text/plain">
+~ Workspace.start()                              @ composeApp/src/commonMain/kotlin/app/Workspace.kt:64
+    openDriver()                                 @ composeApp/src/commonMain/kotlin/app/Workspace.kt:34
++   **keepsData**(driver)                        @ composeApp/src/commonMain/kotlin/app/data/DriverFactory.kt:5   -- new expect fun
++     jvm: true                                  @ composeApp/src/jvmMain/kotlin/app/data/DriverFactory.jvm.kt:11
++     web: SELECT storage_mode() = 'opfs'        @ composeApp/src/wasmJsMain/kotlin/app/data/DriverFactory.wasmJs.kt:20
++ WorkspaceScreen() shows the band               @ composeApp/src/commonMain/kotlin/app/App.kt:55
+</script>
+    </doc-calls>
+    <doc-claim at="composeApp/src/commonMain/kotlin/app/App.kt:55">
+      <p><b>App.kt:55</b> · WorkspaceScreen()</p>
+      <doc-code diff file="composeApp/src/commonMain/kotlin/app/App.kt" start="58">
+<script type="text/plain">
+         screen.error != null && screen.openPage == null -> Status(screen.error ?: "The notebook could not open.")
+-        else -> Row(Modifier.fillMaxSize().background(Paper)) {
+-            PageRail(screen, Modifier.width(260.dp).fillMaxHeight())
+-            Box(Modifier.width(1.dp).fillMaxHeight().background(Line))
+-            PageEditor(screen, Modifier.weight(1f).fillMaxHeight())
+-        }
++        else -> Column(Modifier.fillMaxSize().background(Paper)) {
++            if (!screen.keepsData) StorageBand()
++            Row(Modifier.weight(1f)) {
++                PageRail(screen, Modifier.width(260.dp).fillMaxHeight())
++                Box(Modifier.width(1.dp).fillMaxHeight().background(Line))
++                PageEditor(screen, Modifier.weight(1f).fillMaxHeight())
++            }
++        }
+</script>
+      </doc-code>
+    </doc-claim>
+  </doc-claim>
+</doc-claim>
+
+<!-- ═════ shared · not changing ═════ -->
+<doc-claim aux="shared">
+  <p>Shared: four new queries in <code>Notes.sq</code>. The tables do not change.</p>
+  <doc-schema id="queries" lang="sql" diff title="composeApp/src/commonMain/sqldelight/app/db/Notes.sq" caption="No migration. The page table has deleted_at today.">
+<script type="text/plain">
++countBlocks:
++SELECT COUNT(*) FROM block WHERE page_id = :pageId;
++
++deleteBlock:
++DELETE FROM block WHERE id = :id;
++
++closeGap:
++UPDATE block SET position = position - 1
++WHERE page_id = :pageId AND position > :position;
++
++markDeleted:
++UPDATE page SET deleted_at = :now
++WHERE id = :id AND deleted_at IS NULL;
++
++movePage:
++UPDATE page SET parent_id = :parentId, position = :position
++WHERE id = :id;
+</script>
+  </doc-schema>
+</doc-claim>
+
+<doc-claim aux="scope">
+  <p>Not changing: the save flow, search rules, and the trash.</p>
+  <ul>
+    <li>No trash view and no undo. A deleted page stays in the file with <code>deleted_at</code>. Its blocks stay too.</li>
+    <li>A deleted block is gone from the file. Blocks have no <code>deleted_at</code>.</li>
+    <li>No delete of more than one block at a time. No Backspace merge into the block above.</li>
+    <li>No fix for two tabs on one OPFS file. That is a different plan.</li>
+    <li>Tests first: PageStoreTest, PageTreeTest, BlockListTest and WorkspaceTest get the new cases.</li>
+  </ul>
+</doc-claim>
+
+</doc-plan>
+</main>
+</body>
+</html>

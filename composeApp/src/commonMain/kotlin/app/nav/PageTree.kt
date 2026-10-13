@@ -33,6 +33,15 @@ fun pageTree(pages: List<Page>): List<PageNode> {
     return nodes(null)
 }
 
+// The children take the place of the page, in their own order.
+fun liftChildren(pages: List<Page>, id: String): List<Page> {
+    val page = pages.firstOrNull { it.id == id } ?: return emptyList()
+    val siblings = pages.filter { it.parentId == page.parentId }.sortedBy { it.position }
+    val children = pages.filter { it.parentId == id }.sortedBy { it.position }
+    return siblings.flatMap { if (it.id == id) children else listOf(it) }
+        .mapIndexed { index, it -> it.copy(parentId = page.parentId, position = index.toLong()) }
+}
+
 @Composable
 fun PageTree(
     pages: List<Page>,

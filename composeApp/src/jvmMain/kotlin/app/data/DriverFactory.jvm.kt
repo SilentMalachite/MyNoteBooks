@@ -10,6 +10,8 @@ actual suspend fun createDriver(): SqlDriver {
     return openJvmDriver(notebookDatabaseFile())
 }
 
+actual suspend fun keepsData(driver: SqlDriver): Boolean = true
+
 fun notebookDatabaseFile(home: File = File(System.getProperty("user.home"))): File {
     return File(home, ".notebook/notebook.db")
 }
