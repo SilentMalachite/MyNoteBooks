@@ -1,5 +1,13 @@
 # MyNoteBooks
 
+[![License](https://img.shields.io/github/license/SilentMalachite/MyNoteBooks)](LICENSE)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
+[![Compose Multiplatform](https://img.shields.io/badge/Compose_Multiplatform-1.12.1-4285F4?logo=jetpackcompose&logoColor=white)](https://www.jetbrains.com/compose-multiplatform/)
+[![SQLDelight](https://img.shields.io/badge/SQLDelight-2.4.1-003B57?logo=sqlite&logoColor=white)](https://sqldelight.github.io/sqldelight/)
+[![JDK](https://img.shields.io/badge/JDK-21-ED8B00?logo=openjdk&logoColor=white)](https://openjdk.org/)
+[![Platforms](https://img.shields.io/badge/platform-Windows_%7C_macOS_%7C_Linux_%7C_Web_%28Wasm%29-lightgrey)](#起動方法)
+[![Last commit](https://img.shields.io/github/last-commit/SilentMalachite/MyNoteBooks)](https://github.com/SilentMalachite/MyNoteBooks/commits/main)
+
 ページをブロックの並びとして書く、Notion 風のローカルノートアプリです。Kotlin Multiplatform と Compose Multiplatform で作っており、Windows・macOS のデスクトップ版と Web 版が同じ UI コードで動きます。データは端末内の SQLite に保存し、サーバーやアカウントは使いません。
 
 ## できること
