@@ -36,10 +36,9 @@ function findSqliteDist() {
 }
 
 const sqliteDist = findSqliteDist();
-const workerFile = path.resolve(__dirname, "../../../../composeApp/src/wasmJsMain/resources/sqlite.worker.js");
+// sqlite.worker.js ships from wasmJsMain/resources. Copying it here too breaks wasmJsBrowserDistribution.
 config.plugins.push(new CopyWebpackPlugin({
   patterns: [
-    { from: workerFile, to: "sqlite.worker.js" },
     { from: path.join(sqliteDist, "index.mjs"), to: "sqlite/index.mjs" },
     { from: path.join(sqliteDist, "sqlite3.wasm"), to: "sqlite/sqlite3.wasm" },
     { from: path.join(sqliteDist, "sqlite3-opfs-async-proxy.js"), to: "sqlite/sqlite3-opfs-async-proxy.js" },
