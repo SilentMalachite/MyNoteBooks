@@ -118,3 +118,9 @@ docs/plan.html                     設計計画
 ## 既知の注意点
 
 - 日本語などの IME 入力は、Web 版で十分に試されていません。変換を確定する Enter でブロックが増えないかを、リリース前に確認してください。
+
+## ライセンス
+
+[Apache License 2.0](LICENSE) で公開しています。
+
+Copyright 2026 Silent Malachite
